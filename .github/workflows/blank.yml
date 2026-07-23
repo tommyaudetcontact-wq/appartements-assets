@@ -1,0 +1,58 @@
+name: Renommer PNG de maniere incrementale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rename-png:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Renommer les images PNG
+        run: |
+          # Remplace '.' par le dossier de ton choix (ex: ROOT_DIR="mes_images")
+          # Laisse '.' si tu veux parcourir TOUT le dépôt
+          ROOT_DIR="."
+
+          find "$ROOT_DIR" -type d | while read -r dir; do
+            # Ignorer les dossiers cachés de Git
+            if [[ "$dir" == *"/.git"* ]] || [[ "$dir" == *"/.github"* ]]; then
+              continue
+            fi
+
+            shopt -s nullglob
+            png_files=("$dir"/*.png)
+            shopt -u nullglob
+
+            # Si le dossier contient au moins un fichier PNG
+            if [ ${#png_files[@]} -gt 0 ]; then
+              echo "Traitement du dossier : $dir (${#png_files[@]} fichiers PNG)"
+
+              # Étape 1 : Renommer vers des noms temporaires (évite les conflits)
+              count=1
+              for file in "${png_files[@]}"; do
+                git mv "$file" "$dir/__tmp_${count}__.png"
+                ((count++))
+              done
+
+              # Étape 2 : Appliquer les noms finaux (item1.png, item2.png, ...)
+              count=1
+              shopt -s nullglob
+              tmp_files=("$dir"/__tmp_*__.png)
+              shopt -u nullglob
+
+              for file in "${tmp_files[@]}"; do
+                git mv "$file" "$dir/item${count}.png"
+                ((count++))
+              done
+            fi
+          done
+
+      - name: Valider et enregistrer les modifications
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Renommage des PNG en item1, item2, etc." || exit 0
+          git push
