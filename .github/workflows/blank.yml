@@ -1,4 +1,4 @@
-name: Renommer PNG de maniere incrementale
+name: Renommer PNG Incrementiel Global
 
 on:
   workflow_dispatch:
@@ -10,49 +10,47 @@ jobs:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
 
-      - name: Renommer les images PNG
+      - name: Renommer les fichiers PNG
         run: |
-          # Remplace '.' par le dossier de ton choix (ex: ROOT_DIR="mes_images")
-          # Laisse '.' si tu veux parcourir TOUT le dépôt
-          ROOT_DIR="."
+          python3 -c "
+          import os
 
-          find "$ROOT_DIR" -type d | while read -r dir; do
-            # Ignorer les dossiers cachés de Git
-            if [[ "$dir" == *"/.git"* ]] || [[ "$dir" == *"/.github"* ]]; then
-              continue
-            fi
+          # 1. Lister tous les dossiers au root (exclut .git et .github)
+          target_dirs = []
+          for root, subdirs, files in os.walk('.'):
+              subdirs[:] = sorted([d for d in subdirs if not d.startswith('.')])
+              if root != '.':
+                  target_dirs.append(root)
 
-            shopt -s nullglob
-            png_files=("$dir"/*.png)
-            shopt -u nullglob
+          target_dirs.sort()
 
-            # Si le dossier contient au moins un fichier PNG
-            if [ ${#png_files[@]} -gt 0 ]; then
-              echo "Traitement du dossier : $dir (${#png_files[@]} fichiers PNG)"
+          # 2. Passe 1 : Renommage temporaire avec compteur global
+          temp_records = []
+          global_counter = 1
 
-              # Étape 1 : Renommer vers des noms temporaires (évite les conflits)
-              count=1
-              for file in "${png_files[@]}"; do
-                git mv "$file" "$dir/__tmp_${count}__.png"
-                ((count++))
-              done
+          for d in target_dirs:
+              all_files = sorted(os.listdir(d))
+              png_files = [f for f in all_files if f.lower().endswith('.png') and not f.startswith('__tmp_')]
+              
+              for f in png_files:
+                  old_path = os.path.join(d, f)
+                  temp_name = f'__tmp_{global_counter}__.png'
+                  temp_path = os.path.join(d, temp_name)
+                  os.rename(old_path, temp_path)
+                  temp_records.append((temp_path, d))
+                  global_counter += 1
 
-              # Étape 2 : Appliquer les noms finaux (item1.png, item2.png, ...)
-              count=1
-              shopt -s nullglob
-              tmp_files=("$dir"/__tmp_*__.png)
-              shopt -u nullglob
+          # 3. Passe 2 : Renommage final item1.png, item2.png ... item37.png, etc.
+          for item_num, (temp_path, d) in enumerate(temp_records, start=1):
+              final_path = os.path.join(d, f'item{item_num}.png')
+              os.rename(temp_path, final_path)
+              print(f'Renommé : {temp_path} -> {final_path}')
+          "
 
-              for file in "${tmp_files[@]}"; do
-                git mv "$file" "$dir/item${count}.png"
-                ((count++))
-              done
-            fi
-          done
-
-      - name: Valider et enregistrer les modifications
+      - name: Enregistrer et envoyer les modifications
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Renommage des PNG en item1, item2, etc." || exit 0
+          git add -A
+          git commit -m "Renommage incrémental continu des PNG" || exit 0
           git push
